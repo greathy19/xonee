@@ -1,63 +1,24 @@
 #!/usr/bin/python3
-# install.python3 - Adaptado para Debian 13 (Trixie)
-# Basado en: https://raw.githubusercontent.com/amidevous/xui.one/refs/heads/master/install.python3
+# =============================================================================
+#  XUI.one - Instalador principal
+#  Repositorio: https://github.com/greathy19/xonee
+#  Soporta: Ubuntu 20.04/22.04/24.04 | Debian 11/12/13 (x86_64)
+# =============================================================================
 
-import subprocess, os, random, string, sys, shutil, socket, time, io, platform
+import subprocess, os, random, sys, socket, time, io
 
 if sys.version_info.major != 3:
-    print("Please run with python3.")
+    print("Usa python3 para ejecutar este script.")
     sys.exit(1)
 
-rPath = os.path.dirname(os.path.realpath(__file__))
+REPO_RAW = "https://raw.githubusercontent.com/greathy19/xonee/main"
+rPath    = os.path.dirname(os.path.realpath(__file__))
 
-# -------------------------------------------------------
-# Paquetes adaptados para Debian 13 (Trixie)
-# Eliminados:  python, python-dev, mcrypt (no existen),
-#              software-properties-common (es de Ubuntu),
-#              python2, python2-dev, python2.7, python2.7-dev
-# Renombrados: libmaxminddb0 -> libmaxminddb0t64 en Debian 13
-#              mmdb-bin -> libmaxminddb-bin
-# Añadidos:    python3-pip, python3-setuptools, libssl-dev
-# -------------------------------------------------------
-rPackages = [
-    "iproute2",
-    "net-tools",
-    "dirmngr",
-    "gpg-agent",
-    "libmaxminddb0",          # puede llamarse libmaxminddb0t64 en Debian 13
-    "libmaxminddb-dev",
-    "libmaxminddb-bin",       # reemplaza mmdb-bin
-    "libcurl4",
-    "libgeoip-dev",
-    "libxslt1-dev",
-    "libonig-dev",
-    "e2fsprogs",
-    "wget",
-    "mariadb-server",
-    "sysstat",
-    "alsa-utils",
-    "v4l-utils",
-    "certbot",
-    "iptables-persistent",
-    "libjpeg-dev",
-    "libpng-dev",
-    "xz-utils",
-    "zip",
-    "unzip",
-    "python3",
-    "python3-dev",
-    "python3-pip",
-    "python3-setuptools",
-    "libssl-dev",
-    "curl",
-    "gnupg",
-    "lsb-release",
-    "ca-certificates",
-]
+# ===========================================================================
+# Configuraciones embebidas
+# ===========================================================================
 
-rRemove = ["mysql-server"]
-
-rMySQLCnf = '''# XUI
+rMySQLCnf = """# XUI
 [client]
 port                            = 3306
 
@@ -74,7 +35,6 @@ lc-messages-dir                 = /usr/share/mysql
 skip-external-locking
 skip-name-resolve
 bind-address                    = *
-
 key_buffer_size                 = 128M
 myisam_sort_buffer_size         = 4M
 max_allowed_packet              = 64M
@@ -94,7 +54,6 @@ table_open_cache                = 4096
 table_definition_cache          = 4096
 tmp_table_size                  = 1G
 max_heap_table_size             = 1G
-
 innodb_buffer_pool_size         = 10G
 innodb_buffer_pool_instances    = 10
 innodb_read_io_threads          = 64
@@ -107,11 +66,9 @@ innodb-file-per-table           = 1
 innodb_io_capacity              = 20000
 innodb_table_locks              = 0
 innodb_lock_wait_timeout        = 0
-
 sql_mode                        = "NO_ENGINE_SUBSTITUTION"
 
 [mariadb]
-
 thread_cache_size               = 8192
 thread_handling                 = pool-of-threads
 thread_pool_size                = 12
@@ -126,9 +83,9 @@ max_allowed_packet              = 16M
 [mysql]
 
 [isamchk]
-key_buffer_size                 = 16M'''
+key_buffer_size                 = 16M"""
 
-rConfig = '''; XUI Configuration
+rConfig = """; XUI Configuration
 [XUI]
 hostname    =   "127.0.0.1"
 database    =   "xui"
@@ -138,7 +95,7 @@ license     =   ""
 
 [Encrypted]
 username    =   "%s"
-password    =   "%s"'''
+password    =   "%s\""""
 
 rRedisConfig = """bind *
 protected-mode yes
@@ -201,8 +158,7 @@ save 60 1000
 server-threads 4
 server-thread-affinity true"""
 
-rSysCtl = '''# XUI.one
-
+rSysCtl = """# XUI.one
 net.ipv4.tcp_congestion_control = bbr
 net.core.default_qdisc = fq
 net.ipv4.tcp_rmem = 8192 87380 134217728
@@ -232,9 +188,9 @@ net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_window_scaling = 1
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.route.flush = 1
-net.ipv6.route.flush = 1'''
+net.ipv6.route.flush = 1"""
 
-rSystemd = '''[Unit]
+rSystemd = """[Unit]
 SourcePath=/home/xui/service
 Description=XUI.one Service
 After=network.target
@@ -250,53 +206,55 @@ ExecRestart=/bin/bash /home/xui/service restart
 ExecStop=/bin/bash /home/xui/service stop
 
 [Install]
-WantedBy=multi-user.target'''
+WantedBy=multi-user.target"""
 
 rChoice = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ"
 
+# ===========================================================================
+# Helpers
+# ===========================================================================
 
 class col:
-    HEADER    = '\033[95m'
-    OKBLUE    = '\033[94m'
-    OKGREEN   = '\033[92m'
-    WARNING   = '\033[93m'
-    FAIL      = '\033[91m'
-    ENDC      = '\033[0m'
-    BOLD      = '\033[1m'
-    UNDERLINE = '\033[4m'
-
+    OKBLUE  = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL    = '\033[91m'
+    ENDC    = '\033[0m'
 
 def generate(length=32):
-    return ''.join(random.choice(rChoice) for i in range(length))
-
+    return ''.join(random.choice(rChoice) for _ in range(length))
 
 def getIP():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("8.8.8.8", 80))
-    return s.getsockname()[0]
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
-
-def printc(rText, rColour=col.OKBLUE, rPadding=0):
-    rLeft  = int(30 - (len(rText) / 2))
-    rRight = (60 - rLeft - len(rText))
-    print("%s |--------------------------------------------------------------| %s" % (rColour, col.ENDC))
-    for i in range(rPadding):
-        print("%s |                                                              | %s" % (rColour, col.ENDC))
-    print("%s | %s%s%s | %s" % (rColour, " " * rLeft, rText, " " * rRight, col.ENDC))
-    for i in range(rPadding):
-        print("%s |                                                              | %s" % (rColour, col.ENDC))
-    print("%s |--------------------------------------------------------------| %s" % (rColour, col.ENDC))
+def printc(text, colour=col.OKBLUE, padding=0):
+    left  = int(30 - len(text) / 2)
+    right = max(0, 60 - left - len(text))
+    sep   = "%s |--------------------------------------------------------------| %s" % (colour, col.ENDC)
+    blank = "%s |                                                              | %s" % (colour, col.ENDC)
+    print(sep)
+    for _ in range(padding): print(blank)
+    print("%s | %s%s%s | %s" % (colour, " " * left, text, " " * right, col.ENDC))
+    for _ in range(padding): print(blank)
+    print(sep)
     print(" ")
 
+def run(cmd):
+    os.system(cmd + " >/dev/null 2>&1")
 
 def detect_os():
-    """Detecta si el OS es Debian 13 (Trixie) o compatible."""
-    os_id = ""
-    os_ver = ""
+    os_id, os_ver = "", ""
     try:
         with open("/etc/os-release") as f:
             for line in f:
-                line = line.strip().strip('"')
+                line = line.strip()
                 if line.startswith("ID="):
                     os_id = line.split("=", 1)[1].strip('"')
                 elif line.startswith("VERSION_ID="):
@@ -305,167 +263,140 @@ def detect_os():
         pass
     return os_id.lower(), os_ver
 
-
-def install_package_safe(pkg):
-    """Instala un paquete ignorando error si no existe."""
-    ret = os.system(
-        "sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install %s >/dev/null 2>&1" % pkg
-    )
-    if ret != 0:
-        print("%s[WARN] Package not found or failed: %s%s" % (col.WARNING, pkg, col.ENDC))
-
+# ===========================================================================
+# MAIN
+# ===========================================================================
 
 if __name__ == "__main__":
 
-    # --------------------------------------------------
-    # Verificar OS
-    # --------------------------------------------------
     os_id, os_ver = detect_os()
     arch = os.uname().machine
 
-    print("Detected OS: %s %s %s" % (os_id, os_ver, arch))
+    print("Sistema: %s %s %s" % (os_id, os_ver, arch))
 
     supported = (
-        (os_id == "debian" and os_ver in ["12", "13"]) or
-        (os_id == "ubuntu" and os_ver in ["20.04", "22.04", "24.04"])
-    )
+        (os_id == "ubuntu" and os_ver in ["20.04", "22.04", "24.04"]) or
+        (os_id == "debian" and os_ver in ["11", "12", "13"])
+    ) and arch == "x86_64"
 
-    if not supported or arch != "x86_64":
-        printc("OS no soportado. Usa Debian 12/13 o Ubuntu 20.04/22.04/24.04 (x86_64)", col.FAIL)
+    if not supported:
+        printc("OS no soportado", col.FAIL)
+        print("Ubuntu 20.04/22.04/24.04 o Debian 11/12/13 (x86_64)")
         sys.exit(1)
 
+    # Verificar que el tar.gz de XUI existe
     if not os.path.exists("./xui.tar.gz") and not os.path.exists("./xui_trial.tar.gz"):
-        print("Fatal Error: xui.tar.gz is missing. Please download it from XUI billing panel.")
+        print("Error: xui.tar.gz no encontrado. Descárgalo desde el panel XUI.")
         sys.exit(1)
 
-    printc("XUI", col.OKGREEN, 2)
-    rHost     = "127.0.0.1"
-    rServerID = 1
+    printc("XUI.one Installer", col.OKGREEN, 2)
     rUsername = generate()
     rPassword = generate()
-    rDatabase = "xui"
-    rPort     = 3306
 
+    # Preguntar si existe instalación previa
     if os.path.exists("/home/xui/"):
-        printc("XUI Directory Exists!")
+        printc("Directorio /home/xui/ ya existe!", col.WARNING)
         while True:
-            rAnswer = input("Continue and overwrite? (Y / N) : ")
-            if rAnswer.upper() in ["Y", "N"]: break
-        if rAnswer.upper() == "N": sys.exit(1)
+            ans = input("¿Sobreescribir? (S/N): ").upper()
+            if ans in ["S", "N", "Y"]: break
+        if ans == "N": sys.exit(1)
 
-    # --------------------------------------------------
-    # Preparar e instalar paquetes
-    # --------------------------------------------------
-    printc("Preparing Installation")
-
-    for rFile in [
-        "/var/lib/dpkg/lock-frontend",
-        "/var/cache/apt/archives/lock",
-        "/var/lib/dpkg/lock",
-        "/var/lib/apt/lists/lock"
-    ]:
-        if os.path.exists(rFile):
-            try: os.remove(rFile)
+    # ------------------------------------------------------------------
+    # Limpiar locks de apt
+    # ------------------------------------------------------------------
+    printc("Preparando instalación")
+    for lock in ["/var/lib/dpkg/lock-frontend", "/var/cache/apt/archives/lock",
+                 "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock"]:
+        if os.path.exists(lock):
+            try: os.remove(lock)
             except: pass
 
-    printc("Updating system")
-    os.system("sudo DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1")
-
-    for rPackage in rRemove:
-        printc("Removing %s" % rPackage)
-        os.system(
-            "sudo DEBIAN_FRONTEND=noninteractive apt-get remove %s -y >/dev/null 2>&1" % rPackage
-        )
-
-    for rPackage in rPackages:
-        printc("Installing %s" % rPackage)
-        install_package_safe(rPackage)
-
-    # En Debian 13 el paquete puede haberse renombrado a libmaxminddb0t64
-    ret = os.system("dpkg -l libmaxminddb0 >/dev/null 2>&1")
-    if ret != 0:
-        install_package_safe("libmaxminddb0t64")
-
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Crear usuario xui
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     try:
-        subprocess.check_output("getent passwd xui".split())
-    except:
-        printc("Creating user")
-        os.system(
-            "sudo adduser --system --shell /bin/false --group --disabled-login xui >/dev/null 2>&1"
-        )
+        subprocess.check_output("getent passwd xui".split(), stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        printc("Creando usuario xui")
+        run("adduser --system --shell /bin/false --group --disabled-login xui")
 
-    os.system("mkdir -p /home/xui >/dev/null 2>&1")
+    run("mkdir -p /home/xui")
 
-    # --------------------------------------------------
-    # Instalar XUI
-    # --------------------------------------------------
-    printc("Installing XUI")
-    tar_file = "./xui.tar.gz" if os.path.exists("./xui.tar.gz") else "./xui_trial.tar.gz"
+    # ------------------------------------------------------------------
+    # Extraer XUI
+    # ------------------------------------------------------------------
+    printc("Instalando XUI")
+    tar = "./xui.tar.gz" if os.path.exists("./xui.tar.gz") else "./xui_trial.tar.gz"
+    run('tar -zxvf "%s" -C "/home/xui/"' % tar)
 
-    os.system('sudo tar -zxvf "%s" -C "/home/xui/" >/dev/null 2>&1' % tar_file)
-    os.system(
-        'sudo wget https://raw.githubusercontent.com/amidevous/xui.one/master/build-php.sh '
-        '-O /root/build-php.sh >/dev/null 2>&1'
-    )
-    os.system('cd /root && sudo bash /root/build-php.sh >/dev/null 2>&1')
-    os.system('sudo rm -rf /root/build-php.sh >/dev/null 2>&1')
+    # ------------------------------------------------------------------
+    # Compilar PHP (build-php.sh desde greathy19/xonee)
+    # ------------------------------------------------------------------
+    printc("Compilando PHP")
+    run('wget "%s/build-php.sh" -O /root/build-php.sh' % REPO_RAW)
+    run("cd /root && bash /root/build-php.sh")
+    run("rm -rf /root/build-php.sh")
 
     if not os.path.exists("/home/xui/status"):
-        printc("Failed to extract! Exiting", col.FAIL)
+        printc("Error: extracción fallida", col.FAIL)
         sys.exit(1)
 
-    # --------------------------------------------------
-    # Configurar MySQL / MariaDB
-    # --------------------------------------------------
-    printc("Configuring MySQL")
-    rCreate = True
+    # ------------------------------------------------------------------
+    # Configurar MariaDB
+    # ------------------------------------------------------------------
+    printc("Configurando MariaDB")
+    make_cnf = True
     if os.path.exists("/etc/mysql/my.cnf"):
-        if open("/etc/mysql/my.cnf", "r").read(5) == "# XUI":
-            rCreate = False
-    if rCreate:
+        try:
+            if open("/etc/mysql/my.cnf").read(5) == "# XUI":
+                make_cnf = False
+        except: pass
+
+    if make_cnf:
         with io.open("/etc/mysql/my.cnf", "w", encoding="utf-8") as f:
             f.write(rMySQLCnf)
-        # Debian 13 usa 'mariadb' como nombre de servicio
-        os.system("sudo systemctl restart mariadb >/dev/null 2>&1")
-        os.system("sudo service mariadb restart >/dev/null 2>&1")
+        run("systemctl restart mariadb")
 
     rExtra = ""
-    rRet = os.system("mysql -u root -e \"SELECT VERSION();\"")
-    if rRet != 0:
+    if os.system('mysql -u root -e "SELECT VERSION();" >/dev/null 2>&1') != 0:
         while True:
-            rExtra = " -p%s" % input("Root MySQL Password: ")
-            rRet = os.system("mysql -u root%s -e \"SELECT VERSION();\"" % rExtra)
-            if rRet == 0: break
-            else: printc("Invalid password! Please try again.")
+            rExtra = " -p%s" % input("Contraseña root MariaDB: ")
+            if os.system('mysql -u root%s -e "SELECT VERSION();" >/dev/null 2>&1' % rExtra) == 0:
+                break
+            printc("Contraseña incorrecta", col.FAIL)
 
     for sql in [
         "DROP DATABASE IF EXISTS xui; CREATE DATABASE IF NOT EXISTS xui;",
         "DROP DATABASE IF EXISTS xui_migrate; CREATE DATABASE IF NOT EXISTS xui_migrate;",
     ]:
-        os.system('sudo mysql -u root%s -e "%s" >/dev/null 2>&1' % (rExtra, sql))
+        run('mysql -u root%s -e "%s"' % (rExtra, sql))
 
-    os.system('sudo mysql -u root%s xui < "/home/xui/bin/install/database.sql" >/dev/null 2>&1' % rExtra)
+    run('mysql -u root%s xui < "/home/xui/bin/install/database.sql"' % rExtra)
 
     for host in ["localhost", "127.0.0.1"]:
-        os.system('sudo mysql -u root%s -e "CREATE USER IF NOT EXISTS \'%s\'@\'%s\' IDENTIFIED BY \'%s\';" >/dev/null 2>&1' % (rExtra, rUsername, host, rPassword))
+        run('mysql -u root%s -e "CREATE USER IF NOT EXISTS \'%s\'@\'%s\' IDENTIFIED BY \'%s\';"'
+            % (rExtra, rUsername, host, rPassword))
         for db in ["xui.*", "xui_migrate.*", "mysql.*"]:
-            os.system('sudo mysql -u root%s -e "GRANT ALL PRIVILEGES ON %s TO \'%s\'@\'%s\';" >/dev/null 2>&1' % (rExtra, db, rUsername, host))
-        os.system('sudo mysql -u root%s -e "GRANT GRANT OPTION ON xui.* TO \'%s\'@\'%s\';" >/dev/null 2>&1' % (rExtra, rUsername, host))
+            run('mysql -u root%s -e "GRANT ALL PRIVILEGES ON %s TO \'%s\'@\'%s\';"'
+                % (rExtra, db, rUsername, host))
+        run('mysql -u root%s -e "GRANT GRANT OPTION ON xui.* TO \'%s\'@\'%s\';"'
+            % (rExtra, rUsername, host))
 
-    os.system('sudo mysql -u root%s -e "FLUSH PRIVILEGES;" >/dev/null 2>&1' % rExtra)
+    run('mysql -u root%s -e "FLUSH PRIVILEGES;"' % rExtra)
 
     with io.open("/home/xui/config/config.ini", "w", encoding="utf-8") as f:
         f.write(rConfig % (rUsername, rPassword))
 
-    # --------------------------------------------------
-    # Configurar sistema
-    # --------------------------------------------------
-    printc("Configuring System")
+    # ------------------------------------------------------------------
+    # Configurar sistema (sysctl, systemd, fstab)
+    # ------------------------------------------------------------------
+    printc("Configurando sistema")
 
-    if not "/home/xui/" in open("/etc/fstab").read():
+    try:
+        fstab = open("/etc/fstab").read()
+    except: fstab = ""
+
+    if "/home/xui/" not in fstab:
         with io.open("/etc/fstab", "a", encoding="utf-8") as f:
             f.write(
                 "\ntmpfs /home/xui/content/streams tmpfs defaults,noatime,nosuid,nodev,noexec,mode=1777,size=90% 0 0"
@@ -478,82 +409,92 @@ if __name__ == "__main__":
     if not os.path.exists("/etc/systemd/system/xuione.service"):
         with io.open("/etc/systemd/system/xuione.service", "w", encoding="utf-8") as f:
             f.write(rSystemd)
-        os.system("sudo chmod +x /etc/systemd/system/xuione.service >/dev/null 2>&1")
-        os.system("sudo systemctl daemon-reload >/dev/null 2>&1")
-        os.system("sudo systemctl enable xuione >/dev/null 2>&1")
-        os.system("sudo modprobe ip_conntrack >/dev/null 2>&1 || sudo modprobe nf_conntrack >/dev/null 2>&1")
+        run("chmod +x /etc/systemd/system/xuione.service")
+        run("systemctl daemon-reload")
+        run("systemctl enable xuione")
+        # Kernel moderno: nf_conntrack reemplaza a ip_conntrack
+        if os.system("modprobe ip_conntrack >/dev/null 2>&1") != 0:
+            run("modprobe nf_conntrack")
         with io.open("/etc/sysctl.conf", "w", encoding="utf-8") as f:
             f.write(rSysCtl)
-        os.system("sudo sysctl -p >/dev/null 2>&1")
+        run("sysctl -p")
         open("/home/xui/config/sysctl.on", "w").close()
 
-    system_conf = open("/etc/systemd/system.conf").read()
-    if "DefaultLimitNOFILE=655350" not in system_conf:
-        os.system('echo "\nDefaultLimitNOFILE=655350" | sudo tee -a /etc/systemd/system.conf >/dev/null 2>&1')
-        os.system('echo "\nDefaultLimitNOFILE=655350" | sudo tee -a /etc/systemd/user.conf >/dev/null 2>&1')
+    try:
+        sysconftxt = open("/etc/systemd/system.conf").read()
+    except: sysconftxt = ""
+
+    if "DefaultLimitNOFILE=655350" not in sysconftxt:
+        run('echo "\nDefaultLimitNOFILE=655350" | tee -a /etc/systemd/system.conf /etc/systemd/user.conf')
 
     if not os.path.exists("/home/xui/bin/redis/redis.conf"):
         with io.open("/home/xui/bin/redis/redis.conf", "w", encoding="utf-8") as f:
             f.write(rRedisConfig)
 
-    # --------------------------------------------------
-    # Access Code
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
+    # Crear código de acceso admin
+    # ------------------------------------------------------------------
     rCodeDir  = "/home/xui/bin/nginx/conf/codes/"
     rHasAdmin = None
-    for rCode in os.listdir(rCodeDir):
-        if rCode.endswith(".conf"):
-            if rCode.split(".")[0] == "setup":
+    for fname in os.listdir(rCodeDir):
+        if fname.endswith(".conf"):
+            if fname.split(".")[0] == "setup":
                 os.remove(rCodeDir + "setup.conf")
-            elif "/home/xui/admin" in open(rCodeDir + rCode, "r").read():
-                rHasAdmin = rCode
+            else:
+                try:
+                    if "/home/xui/admin" in open(rCodeDir + fname).read():
+                        rHasAdmin = fname
+                except: pass
 
     if not rHasAdmin:
         rCode = generate(8)
-        os.system(
-            'sudo mysql -u root%s -e "USE xui; INSERT INTO access_codes(code, type, enabled, groups) '
-            'VALUES(\'%s\', 0, 1, \'[1]\');" >/dev/null 2>&1' % (rExtra, rCode)
-        )
-        rTemplate = open(rCodeDir + "template").read()
-        rTemplate = rTemplate.replace("#WHITELIST#", "")
-        rTemplate = rTemplate.replace("#TYPE#", "admin")
-        rTemplate = rTemplate.replace("#CODE#", rCode)
-        rTemplate = rTemplate.replace("#BURST#", "500")
+        run('mysql -u root%s -e "USE xui; INSERT INTO access_codes(code, type, enabled, groups) VALUES(\'%s\', 0, 1, \'[1]\');"'
+            % (rExtra, rCode))
+        tpl = open(rCodeDir + "template").read()
+        tpl = tpl.replace("#WHITELIST#", "").replace("#TYPE#", "admin") \
+                 .replace("#CODE#", rCode).replace("#BURST#", "500")
         with io.open("%s%s.conf" % (rCodeDir, rCode), "w", encoding="utf-8") as f:
-            f.write(rTemplate)
+            f.write(tpl)
     else:
         rCode = rHasAdmin.split(".")[0]
 
-    # --------------------------------------------------
-    # Finalizar
-    # --------------------------------------------------
-    os.system("sudo mount -a >/dev/null 2>&1")
-    os.system("sudo chown xui:xui -R /home/xui >/dev/null 2>&1")
+    # ------------------------------------------------------------------
+    # Iniciar servicio
+    # ------------------------------------------------------------------
+    run("mount -a")
+    run("chown xui:xui -R /home/xui")
     time.sleep(60)
-    os.system("sudo systemctl daemon-reload >/dev/null 2>&1")
+    run("systemctl daemon-reload")
     time.sleep(60)
-    os.system("sudo systemctl start xuione >/dev/null 2>&1")
+    run("systemctl start xuione")
     time.sleep(10)
-    os.system("sudo /home/xui/status 1 >/dev/null 2>&1")
-    time.sleep(60)
-    os.system("sudo wget https://github.com/amidevous/xui.one/releases/download/test/xui_crack.tar.gz -qO /root/xui_crack.tar.gz >/dev/null 2>&1")
-    os.system("sudo tar -xvf /root/xui_crack.tar.gz >/dev/null 2>&1")
-    os.system("sudo systemctl stop xuione >/dev/null 2>&1")
-    os.system("sudo cp -r license /home/xui/config/license >/dev/null 2>&1")
-    os.system("sudo cp -r xui.so /home/xui/bin/php/lib/php/extensions/no-debug-non-zts-20190902/xui.so >/dev/null 2>&1")
-    os.system('sudo sed -i "s/^license.*/license     =   \\"cracked\\"/g" /home/xui/config/config.ini >/dev/null 2>&1')
-    os.system("sudo systemctl start xuione >/dev/null 2>&1")
-    os.system("sudo /home/xui/bin/php/bin/php /home/xui/includes/cli/startup.php >/dev/null 2>&1")
+    run("/home/xui/status 1")
     time.sleep(60)
 
+    # ------------------------------------------------------------------
+    # Aplicar crack (install-crack.sh desde greathy19/xonee)
+    # ------------------------------------------------------------------
+    printc("Aplicando licencia")
+    run('wget "%s/install-crack.sh" -O /root/install-crack.sh' % REPO_RAW)
+    run("bash /root/install-crack.sh")
+    run("rm -f /root/install-crack.sh")
+
+    run("systemctl start xuione")
+    run("/home/xui/bin/php/bin/php /home/xui/includes/cli/startup.php")
+    time.sleep(60)
+
+    # ------------------------------------------------------------------
+    # Guardar credenciales y mostrar resumen
+    # ------------------------------------------------------------------
     with io.open(rPath + "/credentials.txt", "w", encoding="utf-8") as f:
-        f.write("MySQL Username: %s\nMySQL Password: %s" % (rUsername, rPassword))
-        f.write("\nContinue Setup: http://%s/%s" % (getIP(), rCode))
+        f.write("MySQL Usuario : %s\n" % rUsername)
+        f.write("MySQL Password: %s\n" % rPassword)
+        f.write("Panel admin   : http://%s/%s\n" % (getIP(), rCode))
 
-    printc("Installation completed!", col.OKGREEN, 2)
-    printc("Continue Setup: http://%s/%s" % (getIP(), rCode))
+    printc("Instalacion completada!", col.OKGREEN, 2)
+    printc("Panel: http://%s/%s" % (getIP(), rCode))
     print(" ")
-    printc("Your mysql credentials have been saved to:")
+    printc("Credenciales guardadas en:")
     printc(rPath + "/credentials.txt")
     print(" ")
-    printc("Please move this file somewhere safe!")
+    printc("Mueve ese archivo a un lugar seguro!")
